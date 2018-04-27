@@ -23,7 +23,7 @@ Detecter_NII::~Detecter_NII()
 void Detecter_NII::init()
 {
 		// Init python
-	Py_Initialize();
+    Py_Initialize();
 	//PySys_SetArgv(argc, argv);
 
 	//Import Module
@@ -56,7 +56,7 @@ void Detecter_NII::FindEllipses(const Mat& img, const vector<Point>&contour) {
 		traffic.setCenTer(temp.center);
 		//int length = (int)(temp.size.width < temp.size.height) ? (int)temp.size.height : (int)temp.size.width;
 		traffic.setSize(temp.size);
-		cout << "size dong 59:"<<temp.size.width<<" "<<temp.size.height<<endl;
+		//cout << "size dong 59:"<<temp.size.width<<" "<<temp.size.height<<endl;
 		if (temp.size.width >= MINIMUM_SIZE && temp.size.height >= MINIMUM_SIZE
 		&& temp.size.width <= MAXIMUM_SIZE && temp.size.height <= MAXIMUM_SIZE)
 			//push into trafficSigns
@@ -70,13 +70,18 @@ void Detecter_NII::DetectTrafficSigns(const Mat& imgSrc)
 	Mat img;
 	cvtColor(imgSrc, img, CV_BGR2HSV);
 
-	Mat imgBlue;
+	Mat imgBlue,imgRed1,imgRed2,imgRed,mask;
 	inRange(img, Scalar(SCARLAR_LOWER_BLUE), Scalar(SCARLAR_UPPER_BLUE), imgBlue);
-	normalize(imgBlue, imgBlue, 0, 255, NORM_MINMAX);
+	inRange(img, Scalar(SCARLAR_LOWER_RED_2), Scalar(SCARLAR_UPPER_RED_2), imgRed2);
+	inRange(img, Scalar(SCARLAR_LOWER_RED_1), Scalar(SCARLAR_UPPER_RED_1), imgRed1);
+	add(imgRed1,imgRed2,imgRed);
+	//imshow("red",imgRed);
+	add(imgRed,imgBlue,mask);
+	normalize(mask, mask, 0, 255, NORM_MINMAX);
 	//khử nhiễu
-	medianBlur(imgBlue, imgBlue, 5);
+	medianBlur(mask, mask, 5);
 	//xóa đối tượng nhỏ
-	Mat blured; GaussianBlur(imgBlue, blured, Size(5, 5), 0);
+	Mat blured; GaussianBlur(mask, blured, Size(5, 5), 0);
 	//tách biên
 	Mat edge; Canny(blured, edge, 30, 150);
 	
@@ -189,14 +194,15 @@ Mat Detecter_NII::CutTrafficSign(const Mat& imgSrc, TrafficSign& traffic) {
 	Mat temp(imgSrc, y, x);
 	return temp;
 }
-int roi_width = 500, roi_height = 480 * 0.25;
-cv::Rect roi = cv::Rect(70, 20,
+int roi_width = 640, roi_height = 480 * 0.2;
+cv::Rect roi = cv::Rect(0, 100,
 		roi_width, roi_height);
 int Detecter_NII::GetTrafficSignDetected(Mat& frame)
 {
 	int result = -1;
 	
 	Mat img = frame(roi).clone();
+	imwrite("roi.jpg", img);
 	DetectTrafficSigns(img);
 	int size = trafficSigns.size();
 	for (int i=0;i<size;i++)
@@ -214,7 +220,13 @@ int Detecter_NII::GetTrafficSignDetected(Mat& frame)
 		//cout << "acc:"<<acc<<endl;
 		if (acc > MINIMUM_ACCURACY)
 		{
-			trafficSigns[i].setId(id);
+			if (id < 2) //left || right
+				trafficSigns[i].setId(id);
+
+			if (id == 2 && trafficSigns[i].getSize().width >= MINIMUM_SIZE_STOP && trafficSigns[i].getSize().height >= MINIMUM_SIZE_STOP
+			&& trafficSigns[i].getSize().width <= MAXIMUM_SIZE_STOP && trafficSigns[i].getSize().height <= MAXIMUM_SIZE_STOP)
+				trafficSigns[i].setId(id);
+			
 			//DrawTrafficSigns(img, trafficSigns[i]);
 			result = id;
 			

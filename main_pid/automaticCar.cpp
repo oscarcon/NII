@@ -20,6 +20,7 @@
 #include "api_uart.h"
 #include"myfuzzy.h"
 #include "Hal.h"
+#include "LCDI2C.h"
 
 #include <time.h>
 #include <iostream>
@@ -49,6 +50,7 @@ using namespace EmbeddedFramework;
 int set_throttle_val = 0;
 int dir = 0, throttle_val = 0;
 int current_state = 0;
+int lane = -1;//mid lane
 PCA9685 *pca9685 = new PCA9685();
 Point carPosition, centerPosition(-1,-1);
 mutex m1;
@@ -448,8 +450,20 @@ void ControlCarThread()
 		{
 			//imshow("test",img);
 			double angDiff  = 0;
-			bool hasCenter = CenterPoint_NII(img,angDiff);	
-			if (hasCenter) theta = 0.75*angDiff;
+			bool hasCenter = CenterPoint_NII(img,angDiff,lane);	
+			if (hasCenter) 
+			{
+				if ( (abs(theta - 1*angDiff) > 100))
+					{
+
+					}
+				else theta = 1*angDiff;//55:0.9
+				//theta = 1*angDiff;//55:0.9
+			}
+
+
+			//else throttle_val = set_throttle_val - 5;
+
 		}
 		
         processed_controlCar = true;
@@ -487,10 +501,13 @@ void DetectTrafficThread()
 
 int main(int argc, char* argv[]) {
 
+	GPIO *gpio = new GPIO();
+	I2C *i2c_device = new I2C();
+	LCDI2C *lcd = new LCDI2C();
 	ofstream thetalog;
 	thetalog.open("thetalog.txt", ios::out);
 	thetalog << "====Theta log====" << endl;
-	GPIO *gpio = new GPIO();
+	
 	int sw1_stat = 0;
 	int sw2_stat = 0;
 	int sw3_stat = 0;
@@ -509,7 +526,33 @@ int main(int argc, char* argv[]) {
 	gpio->gpioSetDirection(SW3_PIN, INPUT);
 	gpio->gpioSetDirection(SW4_PIN, INPUT);
 	gpio->gpioSetDirection(SENSOR, INPUT);
+
+	i2c_device->m_i2c_bus = 2;
+	
+	if (!i2c_device->HALOpen()) {
+		printf("Cannot open I2C peripheral\n");
+		exit(-1);
+	} else printf("I2C peripheral is opened\n");
+	
+	unsigned char data;
+	if (!i2c_device->HALRead(0x38, 0xFF, 1, &data, "")) {
+		printf("LCD is not found!\n");
+		//exit(-1);
+	} else printf ("LCD is connected\n");
+	
 	usleep(10000);
+	lcd->LCDInit(i2c_device, 0x38, 20, 4);
+	lcd->LCDBacklightOn();
+	lcd->LCDCursorOn();
+	lcd->LCDSetCursor(6,0);
+	lcd->LCDPrintStr("NII Team");
+	lcd->LCDSetCursor(2,1);
+	lcd->LCDPrintStr("Self Car Driving");
+	lcd->LCDSetCursor(0, 2);
+	lcd->LCDPrintStr("Speed:");
+	
+
+
 //tf
 	Detecter_NII::init();
 	/// Init openNI ///
@@ -578,7 +621,7 @@ int main(int argc, char* argv[]) {
 	char key = 0;
 
 	bool hasTraffic = false;
-	int timeTurnHasTraffic = 12; //20
+	int timeTurnHasTraffic = 2; //20
 	//=========== Init  =======================================================
 
 	////////  Init PCA9685 driver   ///////////////////////////////////////////
@@ -640,11 +683,12 @@ int main(int argc, char* argv[]) {
 	
 	unsigned int sensor_status = 1;
 	unsigned int sensor_old = 1;
-	unsigned int bt_val[2], bt_old_val[2];
+	unsigned int bt_val[4], bt_old_val[4];
 
 	std::vector<TrafficSign> vecTraffic;
 
 	bool barie = true;
+	char ch_array[4];
 
 	while (true)
 	{
@@ -654,16 +698,30 @@ int main(int argc, char* argv[]) {
 		st = getTickCount();
 		key = getkey();
 
+		
 		gpio->gpioGetValue(SW1_PIN, &bt_val[0]);
-		gpio->gpioGetValue(SW3_PIN, &bt_val[1]);
-		if (bt_val[0] == 0 && bt_old_val[0] == 1) {
+		gpio->gpioGetValue(SW2_PIN, &bt_val[1]);
+		gpio->gpioGetValue(SW3_PIN, &bt_val[2]);
+		gpio->gpioGetValue(SW4_PIN, &bt_val[3]);
+		// if (bt_val[0] == 0 && bt_old_val[0] == 1) {
+		// 	set_throttle_val += 5;
+		// 	sprintf(ch_array, "%d", set_throttle_val);
+		// 	lcd->LCDSetCursor(7,2);
+		// 	lcd->LCDPrintStr("   ");
+		// 	lcd->LCDSetCursor(7,2);
+		// 	lcd->LCDPrintStr(ch_array);
+		// }
+		if (bt_val[2] == 0 && bt_old_val[2] == 1) {
 			key = 's';
 		}
-		if (bt_val[1] == 0 && bt_old_val[1] == 1) {
+		if (bt_val[3] == 0 && bt_old_val[3] == 1) {
 			key = 'f';
 		}
 		bt_old_val[0] = bt_val[0];
 		bt_old_val[1] = bt_val[1];
+		bt_old_val[2] = bt_val[2];
+		bt_old_val[3] = bt_val[3];
+	
 		//cout << "bt1:" << bt_val[0] << endl;
 
 		//gpio->gpioGetValue(SENSOR, &sensor_status);
@@ -824,7 +882,7 @@ int main(int argc, char* argv[]) {
 	//NII traffic
 				//clock_t begin = clock();
 				int labelTraffic = Detecter_NII::GetTrafficSignDetected(colorImg);
-				cout <<"label:"<<labelTraffic<<endl;
+				//cout <<"label:"<<labelTraffic<<endl;
 				// clock_t end = clock();
 				// double time_spent = (double)(end - begin)/CLOCKS_PER_SEC;
 				// cout <<"time lane"<<time_spent<<endl;
@@ -833,14 +891,29 @@ int main(int argc, char* argv[]) {
 				{
 					hasTraffic = true;
 					//if (set_throttle_val > 45) throttle_val = set_throttle_val - 5;
-					if (labelTraffic == 0) //turn right
+					if (labelTraffic == 1) //turn right
 					{
-						theta = -75;
+						cout <<"=================right================"<<endl;
+						if (lane != 1)
+						{
+							 theta = -70;
+							 
+						}
 					}
-					else if (labelTraffic == 1)//turn left
+					else if (labelTraffic == 0)//turn left
 					{
-						theta = +75;
+						cout <<"=================left================"<<endl;
+						if (lane != -1) 
+						{
+							theta = +70;
+							
+						}
 					}	
+					else if (labelTraffic == 2) //stop
+					{
+						cout <<"===============stop============="<<endl;
+						running = false;
+					}
 				}
 
 
@@ -857,7 +930,8 @@ int main(int argc, char* argv[]) {
 					else 
 					{
 						hasTraffic = false;
-						timeTurnHasTraffic = 12;
+						timeTurnHasTraffic = 2;
+						
 					}
 				
 				//		get center point of lane
@@ -877,6 +951,7 @@ int main(int argc, char* argv[]) {
 				
 				
 				cout <<"theta: "<<theta<<endl;
+				cout << "lane: " << lane << endl;
 				
 //Fri-6-4-18
 				api_set_STEERING_control(pca9685, theta);
@@ -889,6 +964,7 @@ int main(int argc, char* argv[]) {
 			
 			///////  Your PID code here"  //////////////////////////////////////////
 			//cout << "Throttle: " << throttle_val << endl;
+			//if (abs(theta)>60) throttle_val = set_throttle_val - 5;
 			api_set_FORWARD_control(pca9685, throttle_val);
 			et = getTickCount();
 			fps = 1.0 / ((et - st) / freq);

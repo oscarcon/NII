@@ -17,6 +17,6 @@ using namespace cv;
 #define VIDEO_FRAME_HEIGHT 480
 #define MINIMUM_LENGTH_LANE 50
 
-bool CenterPoint_NII(const Mat& imgGray, double& theta);
+bool CenterPoint_NII(const Mat& imgGray, double& theta,int& lane);
 
 
